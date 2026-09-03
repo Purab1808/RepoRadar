@@ -1,5 +1,6 @@
 """RepoRadar - a small CLI tool for checking links in README files."""
 
+import base64
 import re
 import sys
 import time
@@ -9,13 +10,58 @@ import requests
 
 
 MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
+GITHUB_URL_PATTERN = re.compile(
+    r"https?://github\.com/([^/\s]+)/([^/\s#?]+)"
+)
 REQUEST_TIMEOUT = 10
 
 
-def extract_links(readme_path):
-    """Extract HTTP and HTTPS links from a Markdown README."""
-    content = Path(readme_path).read_text(encoding="utf-8")
+def extract_links(content):
+    """Extract HTTP and HTTPS links from Markdown content."""
     return MARKDOWN_LINK_PATTERN.findall(content)
+
+
+def fetch_github_readme(repository_url):
+    """Fetch a repository README from the GitHub API."""
+    match = GITHUB_URL_PATTERN.match(repository_url.rstrip("/"))
+
+    if not match:
+        raise ValueError("Invalid GitHub repository URL.")
+
+    owner, repository = match.groups()
+    repository = repository.removesuffix(".git")
+
+    api_url = (
+        f"https://api.github.com/repos/{owner}/{repository}/readme"
+    )
+
+    response = requests.get(
+        api_url,
+        headers={"Accept": "application/vnd.github+json"},
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if response.status_code == 404:
+        raise ValueError(
+            "README not found. Check that the repository is public "
+            "and the URL is correct."
+        )
+
+    response.raise_for_status()
+
+    data = response.json()
+
+    if data.get("encoding") != "base64":
+        raise ValueError("Unsupported README encoding.")
+
+    content = base64.b64decode(data["content"]).decode("utf-8")
+
+    return content
+
+
+def read_local_readme(readme_path):
+    """Read a local Markdown README file."""
+    return Path(readme_path).read_text(encoding="utf-8")
 
 
 def check_link(url):
@@ -76,7 +122,6 @@ def display_result(number, result):
             print(f"   Status: {result['status']}")
         else:
             print(f"   Error: {result['error']}")
-
     else:
         print(f"{number}. ✓ {result['url']}")
         print(f"   Status: {result['status']}")
@@ -85,6 +130,7 @@ def display_result(number, result):
             print(f"   Redirected to: {result['final_url']}")
 
     print(f"   Response time: {result['response_time']:.2f}s")
+
 
 def calculate_health_score(results):
     """Calculate README health score from link check results."""
@@ -108,6 +154,7 @@ def get_health_label(score):
     if score >= 40:
         return "Needs Attention"
     return "Poor"
+
 
 def display_summary(results):
     """Display a summary of working and broken links."""
@@ -136,28 +183,53 @@ def display_summary(results):
         for result in broken_links:
             print(f"- {result['url']}")
 
+    if not results:
+        print("\nSuggestion:")
+        print(
+            "→ Consider adding relevant links such as a live demo,"
+        )
+        print(
+            "  documentation, or related resources for a more complete README."
+        )
+
     print()
+
 
 def main():
     """Run the RepoRadar command-line interface."""
     if len(sys.argv) != 2:
-        print("Usage: python reporadar.py <README.md>")
+        print("Usage: python reporadar.py <README.md | GitHub URL>")
         return
 
-    readme_path = sys.argv[1]
+    source = sys.argv[1]
 
-    if not Path(readme_path).is_file():
-        print(f"Error: File not found: {readme_path}")
+    try:
+        if source.startswith("https://github.com/"):
+            print("\nRepoRadar - GitHub README Link Checker")
+            print("-" * 40)
+            print(f"Repository: {source}")
+            print("\nFetching README...")
+
+            content = fetch_github_readme(source)
+        else:
+            print("\nRepoRadar - README Link Checker")
+            print("-" * 35)
+            print(f"File: {source}")
+            print("\nReading README...")
+
+            content = read_local_readme(source)
+
+    except (OSError, ValueError, requests.RequestException) as error:
+        print(f"\nError: {error}")
         return
 
-    links = extract_links(readme_path)
+    links = extract_links(content)
 
-    print("\nRepoRadar - README Link Checker")
-    print("-" * 35)
     print(f"Links found: {len(links)}")
 
     if not links:
         print("No HTTP/HTTPS Markdown links found.")
+        display_summary([])
         return
 
     print("\nChecking links...\n")
