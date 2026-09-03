@@ -86,11 +86,42 @@ def display_result(number, result):
 
     print(f"   Response time: {result['response_time']:.2f}s")
 
+def calculate_health_score(results):
+    """Calculate README health score from link check results."""
+    if not results:
+        return 100
+
+    working_links = sum(
+        not is_link_broken(result)
+        for result in results
+    )
+
+    return round((working_links / len(results)) * 100)
+
+
+def get_health_label(score):
+    """Return a readable label for a README health score."""
+    if score >= 90:
+        return "Excellent"
+    if score >= 70:
+        return "Good"
+    if score >= 40:
+        return "Needs Attention"
+    return "Poor"
 
 def display_summary(results):
     """Display a summary of working and broken links."""
-    broken_links = [result for result in results if is_link_broken(result)]
-    working_links = [result for result in results if not is_link_broken(result)]
+    broken_links = [
+        result for result in results
+        if is_link_broken(result)
+    ]
+    working_links = [
+        result for result in results
+        if not is_link_broken(result)
+    ]
+
+    health_score = calculate_health_score(results)
+    health_label = get_health_label(health_score)
 
     print("\n" + "-" * 35)
     print("Link Check Summary")
@@ -98,6 +129,7 @@ def display_summary(results):
     print(f"Total links:   {len(results)}")
     print(f"Working links: {len(working_links)}")
     print(f"Broken links:  {len(broken_links)}")
+    print(f"README Health: {health_score}% ({health_label})")
 
     if broken_links:
         print("\nBroken Links:")
@@ -105,7 +137,6 @@ def display_summary(results):
             print(f"- {result['url']}")
 
     print()
-
 
 def main():
     """Run the RepoRadar command-line interface."""
