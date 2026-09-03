@@ -2,6 +2,7 @@
 
 import re
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -18,7 +19,9 @@ def extract_links(readme_path):
 
 
 def check_link(url):
-    """Check whether a URL is reachable and return its status."""
+    """Check a URL and return its status, final URL, and response time."""
+    start_time = time.perf_counter()
+
     try:
         response = requests.head(
             url,
@@ -34,10 +37,74 @@ def check_link(url):
                 stream=True,
             )
 
-        return response.status_code, response.url
+        response_time = time.perf_counter() - start_time
+
+        return {
+            "url": url,
+            "status": response.status_code,
+            "final_url": response.url,
+            "response_time": response_time,
+            "error": None,
+        }
 
     except requests.RequestException as error:
-        return None, str(error)
+        response_time = time.perf_counter() - start_time
+
+        return {
+            "url": url,
+            "status": None,
+            "final_url": None,
+            "response_time": response_time,
+            "error": str(error),
+        }
+
+
+def is_link_broken(result):
+    """Return True when a link could not be reached successfully."""
+    if result["status"] is None:
+        return True
+
+    return result["status"] >= 400
+
+
+def display_result(number, result):
+    """Display the result of a single link check."""
+    if is_link_broken(result):
+        print(f"{number}. ✗ {result['url']}")
+
+        if result["status"] is not None:
+            print(f"   Status: {result['status']}")
+        else:
+            print(f"   Error: {result['error']}")
+
+    else:
+        print(f"{number}. ✓ {result['url']}")
+        print(f"   Status: {result['status']}")
+
+        if result["final_url"] != result["url"]:
+            print(f"   Redirected to: {result['final_url']}")
+
+    print(f"   Response time: {result['response_time']:.2f}s")
+
+
+def display_summary(results):
+    """Display a summary of working and broken links."""
+    broken_links = [result for result in results if is_link_broken(result)]
+    working_links = [result for result in results if not is_link_broken(result)]
+
+    print("\n" + "-" * 35)
+    print("Link Check Summary")
+    print("-" * 35)
+    print(f"Total links:   {len(results)}")
+    print(f"Working links: {len(working_links)}")
+    print(f"Broken links:  {len(broken_links)}")
+
+    if broken_links:
+        print("\nBroken Links:")
+        for result in broken_links:
+            print(f"- {result['url']}")
+
+    print()
 
 
 def main():
@@ -64,15 +131,14 @@ def main():
 
     print("\nChecking links...\n")
 
-    for number, link in enumerate(links, start=1):
-        status_code, result = check_link(link)
+    results = []
 
-        if status_code is not None:
-            print(f"{number}. ✓ {link}")
-            print(f"   Status: {status_code}")
-        else:
-            print(f"{number}. ✗ {link}")
-            print(f"   Error: {result}")
+    for number, link in enumerate(links, start=1):
+        result = check_link(link)
+        results.append(result)
+        display_result(number, result)
+
+    display_summary(results)
 
 
 if __name__ == "__main__":
