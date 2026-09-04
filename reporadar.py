@@ -41,27 +41,35 @@ SECTION_ALIASES = {
         "setup instructions",
         "setup guide",
         "installation guide",
-        "getting started",
-        "quick start",
         "how to install",
+        "installing",
     ),
     "Usage": (
         "usage",
+        "usage guide",
         "how to use",
         "running",
+        "run",
         "run locally",
         "running locally",
+        "run it",
+        "example",
+        "examples",
         "example usage",
         "how it works",
         "getting started",
         "quick start",
+        "quickstart",
+        "getting started guide",
     ),
     "Features": (
         "features",
         "feature",
         "key features",
+        "main features",
         "functionality",
         "capabilities",
+        "what it does",
     ),
     "Demo": (
         "demo",
@@ -69,13 +77,28 @@ SECTION_ALIASES = {
         "screenshots",
         "screenshot",
         "preview",
+        "live preview",
     ),
     "Contributing / License": (
         "contributing",
         "contribute",
         "contribution",
+        "contributions",
         "license",
         "licence",
+        "licensing",
+    ),
+}
+
+
+SECTION_CONTENT_CUES = {
+    "Features": (
+        r"^\s*the\s+key\s+features\s+are\s*:?\s*$",
+        r"^\s*key\s+features\s*:?\s*$",
+        r"^\s*main\s+features\s*:?\s*$",
+        r"^\s*features\s+include\s*:?\s*$",
+        r"^\s*this\s+project\s+provides\s*:?\s*$",
+        r"^\s*the\s+main\s+features\s+include\s*:?\s*$",
     ),
 }
 
@@ -96,19 +119,37 @@ def extract_headings(content):
 
 
 def detect_sections(content):
-    """Detect important README sections using heading aliases."""
+    """
+    Detect important README sections using general semantic aliases
+    and strong structural content cues.
+    """
     headings = extract_headings(content)
     detected_sections = set()
 
     normalized_aliases = {
-        section: {normalize_heading(alias) for alias in aliases}
+        section: {
+            normalize_heading(alias)
+            for alias in aliases
+        }
         for section, aliases in SECTION_ALIASES.items()
     }
 
+    # Detect sections from actual Markdown headings.
     for heading in headings:
         for section, aliases in normalized_aliases.items():
             if heading in aliases:
                 detected_sections.add(section)
+
+    # Detect sections from strong standalone content patterns.
+    for section, patterns in SECTION_CONTENT_CUES.items():
+        for pattern in patterns:
+            if re.search(
+                pattern,
+                content,
+                re.IGNORECASE | re.MULTILINE,
+            ):
+                detected_sections.add(section)
+                break
 
     return detected_sections
 
@@ -126,8 +167,10 @@ def fetch_github_readme(repository_url):
         raise ValueError("Invalid GitHub repository URL.")
 
     owner, repository = match.groups()
-
-    api_url = f"https://api.github.com/repos/{owner}/{repository}/readme"
+    api_url = (
+        f"https://api.github.com/repos/"
+        f"{owner}/{repository}/readme"
+    )
 
     response = requests.get(
         api_url,
@@ -136,7 +179,9 @@ def fetch_github_readme(repository_url):
     )
 
     if response.status_code == 404:
-        raise ValueError("README not found or repository does not exist.")
+        raise ValueError(
+            "README not found or repository does not exist."
+        )
 
     response.raise_for_status()
 
@@ -145,7 +190,9 @@ def fetch_github_readme(repository_url):
     if data.get("encoding") != "base64":
         raise ValueError("Unsupported README encoding.")
 
-    return base64.b64decode(data["content"]).decode("utf-8")
+    return base64.b64decode(
+        data["content"]
+    ).decode("utf-8")
 
 
 def read_local_readme(readme_path):
@@ -190,7 +237,10 @@ def classify_link(url):
         "github.io",
     )
 
-    if any(keyword in url_lower for keyword in demo_keywords):
+    if any(
+        keyword in url_lower
+        for keyword in demo_keywords
+    ):
         return "Demo"
 
     documentation_keywords = (
@@ -200,7 +250,10 @@ def classify_link(url):
         "readthedocs.io",
     )
 
-    if any(keyword in url_lower for keyword in documentation_keywords):
+    if any(
+        keyword in url_lower
+        for keyword in documentation_keywords
+    ):
         return "Documentation"
 
     if "demo" in url_lower:
@@ -240,7 +293,9 @@ def check_link(url):
                     timeout=REQUEST_TIMEOUT,
                 )
 
-            response_time = time.perf_counter() - start_time
+            response_time = (
+                time.perf_counter() - start_time
+            )
 
             return {
                 "url": url,
@@ -292,7 +347,9 @@ def calculate_link_health(results):
 
     total_links = len(results)
 
-    return round((working_links / total_links) * 35)
+    return round(
+        (working_links / total_links) * 35
+    )
 
 
 def detect_readme_context(content, links):
@@ -488,7 +545,9 @@ def has_readme_title(content):
     # screenshots or unrelated images as titles.
     beginning = "\n".join(lines[:40])
 
-    image_alts = HTML_IMAGE_ALT_PATTERN.findall(beginning)
+    image_alts = HTML_IMAGE_ALT_PATTERN.findall(
+        beginning
+    )
 
     ignored_alt_text = {
         "logo",
@@ -602,17 +661,25 @@ def display_result(index, result):
     link_type = classify_link(result["url"])
 
     if result["status"] == "LOCAL":
-        print(f"{index}. ~ {result['url']}")
+        print(
+            f"{index}. ~ {result['url']}"
+        )
         print("   Status: LOCAL")
         print(f"   Type: {link_type}")
-        print("   Note: Local development/example URL")
+        print(
+            "   Note: Local development/example URL"
+        )
         return
 
     if is_link_broken(result):
-        print(f"{index}. ✗ {result['url']}")
+        print(
+            f"{index}. ✗ {result['url']}"
+        )
 
         if result["error"]:
-            print(f"   Error: {result['error']}")
+            print(
+                f"   Error: {result['error']}"
+            )
 
         print(f"   Type: {link_type}")
         print(
@@ -624,8 +691,12 @@ def display_result(index, result):
         )
 
     else:
-        print(f"{index}. ✓ {result['url']}")
-        print(f"   Status: {result['status']}")
+        print(
+            f"{index}. ✓ {result['url']}"
+        )
+        print(
+            f"   Status: {result['status']}"
+        )
         print(f"   Type: {link_type}")
 
         if result["attempts"] > 1:
@@ -788,7 +859,9 @@ def display_summary(
     print(f"Broken links:  {broken_links}")
 
     if local_links:
-        print(f"Local/example: {local_links}")
+        print(
+            f"Local/example: {local_links}"
+        )
 
     print(
         f"README Health: {health_score}% "
@@ -797,18 +870,22 @@ def display_summary(
 
     print()
     print("Score Breakdown:")
+
     print(
         f"- Link Health:        "
         f"{breakdown['Link Health']}/35"
     )
+
     print(
         f"- README Content:     "
         f"{breakdown['README Content']}/30"
     )
+
     print(
         f"- Important Sections: "
         f"{breakdown['Important Sections']}/25"
     )
+
     print(
         f"- Basic Quality:      "
         f"{breakdown['Basic Quality']}/10"
@@ -848,10 +925,14 @@ def main():
 
     target = sys.argv[1]
 
-    print("RepoRadar - GitHub README Link Checker")
+    print(
+        "RepoRadar - GitHub README Link Checker"
+    )
     print("----------------------------------------")
 
-    if target.startswith("https://github.com/"):
+    if target.startswith(
+        "https://github.com/"
+    ):
         print(f"Repository: {target}")
         print()
         print("Fetching README...")
@@ -883,7 +964,9 @@ def main():
     print(f"Links found: {len(links)}")
 
     if not links:
-        print("No HTTP/HTTPS Markdown links found.")
+        print(
+            "No HTTP/HTTPS Markdown links found."
+        )
 
     results = []
 
@@ -892,7 +975,10 @@ def main():
         print("Checking links...")
         print()
 
-        for index, link in enumerate(links, start=1):
+        for index, link in enumerate(
+            links,
+            start=1,
+        ):
             result = check_link(link)
             results.append(result)
             display_result(index, result)
