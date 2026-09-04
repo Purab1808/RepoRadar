@@ -13,6 +13,7 @@ MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
 GITHUB_URL_PATTERN = re.compile(
     r"https?://github\.com/([^/\s]+)/([^/\s#?]+)"
 )
+
 REQUEST_TIMEOUT = 10
 
 
@@ -31,9 +32,7 @@ def fetch_github_readme(repository_url):
     owner, repository = match.groups()
     repository = repository.removesuffix(".git")
 
-    api_url = (
-        f"https://api.github.com/repos/{owner}/{repository}/readme"
-    )
+    api_url = f"https://api.github.com/repos/{owner}/{repository}/readme"
 
     response = requests.get(
         api_url,
@@ -176,65 +175,268 @@ def display_result(number, result):
     print(f"   Response time: {result['response_time']:.2f}s")
 
 
-def calculate_health_score(results):
-    """Calculate README health score from link check results."""
+def calculate_link_health(results):
+    """Calculate the link health score out of 35 points."""
     if not results:
-        return 100
+        return 0
 
     working_links = sum(
         not is_link_broken(result)
         for result in results
     )
 
-    return round((working_links / len(results)) * 100)
+    working_ratio = working_links / len(results)
+
+    return round(working_ratio * 35)
+
+
+def calculate_content_score(content):
+    """Calculate README content score out of 30 points."""
+    score = 0
+
+    lines = content.splitlines()
+    non_empty_lines = [line.strip() for line in lines if line.strip()]
+    word_count = len(content.split())
+
+    has_title = bool(re.search(r"^#\s+\S+", content, re.MULTILINE))
+    has_description = word_count >= 30
+    has_code_block = "```" in content
+
+    if has_title:
+        score += 5
+
+    if has_description:
+        score += 10
+
+    if word_count >= 100:
+        score += 10
+    elif word_count >= 50:
+        score += 5
+
+    if has_code_block:
+        score += 5
+
+    return min(score, 30)
+
+
+def calculate_section_score(content):
+    """Calculate important README section score out of 25 points."""
+    content_lower = content.lower()
+
+    section_groups = {
+        "Installation": (
+            "installation",
+            "install",
+            "setup",
+        ),
+        "Usage": (
+            "usage",
+            "how to use",
+            "getting started",
+        ),
+        "Features": (
+            "features",
+            "feature",
+        ),
+        "Demo": (
+            "demo",
+            "live demo",
+            "screenshots",
+            "screenshot",
+        ),
+        "Contributing / License": (
+            "contributing",
+            "contribute",
+            "license",
+        ),
+    }
+
+    score = 0
+
+    for keywords in section_groups.values():
+        if any(keyword in content_lower for keyword in keywords):
+            score += 5
+
+    return score
+
+
+def calculate_quality_score(content):
+    """Calculate basic README quality score out of 10 points."""
+    score = 0
+
+    lines = content.splitlines()
+    non_empty_lines = [line.strip() for line in lines if line.strip()]
+
+    heading_count = len(
+        re.findall(r"^#{1,6}\s+\S+", content, re.MULTILINE)
+    )
+
+    excessive_empty_lines = bool(re.search(r"\n{4,}", content))
+    word_count = len(content.split())
+
+    if heading_count >= 2:
+        score += 4
+
+    if not excessive_empty_lines:
+        score += 2
+
+    if word_count >= 50:
+        score += 4
+
+    return min(score, 10)
+
+
+def calculate_health_score(content, results):
+    """Calculate the complete README health score out of 100."""
+    link_score = calculate_link_health(results)
+    content_score = calculate_content_score(content)
+    section_score = calculate_section_score(content)
+    quality_score = calculate_quality_score(content)
+
+    total_score = (
+        link_score
+        + content_score
+        + section_score
+        + quality_score
+    )
+
+    breakdown = {
+        "Link Health": link_score,
+        "README Content": content_score,
+        "Important Sections": section_score,
+        "Basic Quality": quality_score,
+    }
+
+    return total_score, breakdown
 
 
 def get_health_label(score):
     """Return a readable label for a README health score."""
     if score >= 90:
         return "Excellent"
+
     if score >= 70:
         return "Good"
+
     if score >= 40:
         return "Needs Attention"
+
     return "Poor"
 
 
-def display_summary(results):
-    """Display a summary of working and broken links."""
+def generate_suggestions(content, results, breakdown):
+    """Generate suggestions based on README health analysis."""
+    suggestions = []
+
     broken_links = [
         result for result in results
         if is_link_broken(result)
     ]
+
+    content_lower = content.lower()
+
+    if broken_links:
+        suggestions.append(
+            f"Fix {len(broken_links)} broken link"
+            f"{'s' if len(broken_links) != 1 else ''}."
+        )
+
+    if breakdown["README Content"] < 30:
+        if not re.search(r"^#\s+\S+", content, re.MULTILINE):
+            suggestions.append("Add a clear README title.")
+
+        if len(content.split()) < 30:
+            suggestions.append(
+                "Add a short description explaining the project."
+            )
+
+        if "```" not in content:
+            suggestions.append(
+                "Add a code example or usage example."
+            )
+
+    section_suggestions = {
+        "installation": "Add an Installation section.",
+        "usage": "Add a Usage section.",
+        "features": "Add a Features section.",
+    }
+
+    for keyword, suggestion in section_suggestions.items():
+        if keyword not in content_lower:
+            suggestions.append(suggestion)
+
+    if not results:
+        suggestions.append(
+            "Consider adding relevant links such as a live demo "
+            "or documentation."
+        )
+
+    return suggestions
+
+
+def display_summary(content, results):
+    """Display README health score and analysis."""
+    broken_links = [
+        result for result in results
+        if is_link_broken(result)
+    ]
+
     working_links = [
         result for result in results
         if not is_link_broken(result)
     ]
 
-    health_score = calculate_health_score(results)
+    health_score, breakdown = calculate_health_score(
+        content,
+        results,
+    )
+
     health_label = get_health_label(health_score)
 
     print("\n" + "-" * 35)
-    print("Link Check Summary")
+    print("README Health Summary")
     print("-" * 35)
+
     print(f"Total links:   {len(results)}")
     print(f"Working links: {len(working_links)}")
     print(f"Broken links:  {len(broken_links)}")
-    print(f"README Health: {health_score}% ({health_label})")
+
+    print(
+        f"README Health: {health_score}% "
+        f"({health_label})"
+    )
+
+    print("\nScore Breakdown:")
+    print(
+        f"- Link Health:        {breakdown['Link Health']}/35"
+    )
+    print(
+        f"- README Content:     {breakdown['README Content']}/30"
+    )
+    print(
+        f"- Important Sections: {breakdown['Important Sections']}/25"
+    )
+    print(
+        f"- Basic Quality:      {breakdown['Basic Quality']}/10"
+    )
 
     if broken_links:
         print("\nBroken Links:")
+
         for result in broken_links:
             print(f"- {result['url']}")
 
-    if not results:
-        print("\nSuggestion:")
-        print(
-            "→ Consider adding relevant links such as a live demo,"
-        )
-        print(
-            "  documentation, or related resources for a more complete README."
-        )
+    suggestions = generate_suggestions(
+        content,
+        results,
+        breakdown,
+    )
+
+    if suggestions:
+        print("\nSuggestions:")
+
+        for suggestion in suggestions:
+            print(f"→ {suggestion}")
 
     print()
 
@@ -255,6 +457,7 @@ def main():
             print("\nFetching README...")
 
             content = fetch_github_readme(source)
+
         else:
             print("\nRepoRadar - README Link Checker")
             print("-" * 35)
@@ -263,7 +466,11 @@ def main():
 
             content = read_local_readme(source)
 
-    except (OSError, ValueError, requests.RequestException) as error:
+    except (
+        OSError,
+        ValueError,
+        requests.RequestException,
+    ) as error:
         print(f"\nError: {error}")
         return
 
@@ -271,21 +478,21 @@ def main():
 
     print(f"Links found: {len(links)}")
 
-    if not links:
+    if links:
+        print("\nChecking links...\n")
+
+        results = []
+
+        for number, link in enumerate(links, start=1):
+            result = check_link(link)
+            results.append(result)
+            display_result(number, result)
+
+    else:
         print("No HTTP/HTTPS Markdown links found.")
-        display_summary([])
-        return
+        results = []
 
-    print("\nChecking links...\n")
-
-    results = []
-
-    for number, link in enumerate(links, start=1):
-        result = check_link(link)
-        results.append(result)
-        display_result(number, result)
-
-    display_summary(results)
+    display_summary(content, results)
 
 
 if __name__ == "__main__":
