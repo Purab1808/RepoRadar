@@ -64,6 +64,44 @@ def read_local_readme(readme_path):
     return Path(readme_path).read_text(encoding="utf-8")
 
 
+def classify_link(url):
+    """Classify a URL based on its domain or path."""
+    url_lower = url.lower()
+
+    if "linkedin.com" in url_lower:
+        return "LinkedIn"
+
+    if "mailto:" in url_lower:
+        return "Email"
+
+    if "github.com" in url_lower:
+        return "GitHub"
+
+    demo_keywords = (
+        "vercel.app",
+        "netlify.app",
+        "github.io",
+    )
+
+    if any(keyword in url_lower for keyword in demo_keywords):
+        return "Demo"
+
+    documentation_keywords = (
+        "docs.",
+        "documentation",
+        "/docs",
+        "readthedocs.io",
+    )
+
+    if any(keyword in url_lower for keyword in documentation_keywords):
+        return "Documentation"
+
+    if "demo" in url_lower:
+        return "Demo"
+
+    return "External Website"
+
+
 def check_link(url):
     """Check a URL and return its status, final URL, and response time."""
     start_time = time.perf_counter()
@@ -115,6 +153,8 @@ def is_link_broken(result):
 
 def display_result(number, result):
     """Display the result of a single link check."""
+    link_type = classify_link(result["url"])
+
     if is_link_broken(result):
         print(f"{number}. ✗ {result['url']}")
 
@@ -122,9 +162,13 @@ def display_result(number, result):
             print(f"   Status: {result['status']}")
         else:
             print(f"   Error: {result['error']}")
+
+        print(f"   Type: {link_type}")
+
     else:
         print(f"{number}. ✓ {result['url']}")
         print(f"   Status: {result['status']}")
+        print(f"   Type: {link_type}")
 
         if result["final_url"] != result["url"]:
             print(f"   Redirected to: {result['final_url']}")
