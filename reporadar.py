@@ -17,7 +17,59 @@ GITHUB_URL_PATTERN = re.compile(
     r"https?://github\.com/([^/\s]+)/([^/\s#?]+)"
 )
 
+HEADING_PATTERN = re.compile(
+    r"^#{1,6}\s+(.+?)\s*$",
+    re.MULTILINE,
+)
+
 REQUEST_TIMEOUT = 10
+
+
+SECTION_ALIASES = {
+    "Installation": (
+        "installation",
+        "install",
+        "setup",
+        "setup instructions",
+        "setup guide",
+        "installation guide",
+        "getting started",
+        "quick start",
+        "how to install",
+    ),
+    "Usage": (
+        "usage",
+        "how to use",
+        "running",
+        "run locally",
+        "running locally",
+        "example usage",
+        "how it works",
+        "getting started",
+        "quick start",
+    ),
+    "Features": (
+        "features",
+        "feature",
+        "key features",
+        "functionality",
+        "capabilities",
+    ),
+    "Demo": (
+        "demo",
+        "live demo",
+        "screenshots",
+        "screenshot",
+        "preview",
+    ),
+    "Contributing / License": (
+        "contributing",
+        "contribute",
+        "contribution",
+        "license",
+        "licence",
+    ),
+}
 
 
 def extract_links(content):
@@ -178,6 +230,52 @@ def display_result(number, result):
     print(f"   Response time: {result['response_time']:.2f}s")
 
 
+def normalize_heading(heading):
+    """Normalize a Markdown heading for reliable matching."""
+    heading = heading.lower().strip()
+    heading = heading.replace("&", " and ")
+    heading = re.sub(r"[^a-z0-9\s]", " ", heading)
+    heading = re.sub(r"\s+", " ", heading)
+
+    return heading.strip()
+
+
+def extract_headings(content):
+    """Extract and normalize Markdown headings."""
+    headings = HEADING_PATTERN.findall(content)
+
+    return [
+        normalize_heading(heading)
+        for heading in headings
+    ]
+
+
+def detect_sections(content):
+    """Detect important README sections from Markdown headings."""
+    headings = extract_headings(content)
+    detected_sections = set()
+
+    for section, aliases in SECTION_ALIASES.items():
+        normalized_aliases = {
+            normalize_heading(alias)
+            for alias in aliases
+        }
+
+        for heading in headings:
+            if heading in normalized_aliases:
+                detected_sections.add(section)
+                break
+
+    return detected_sections
+
+
+def calculate_section_score(content):
+    """Calculate important README section score out of 25 points."""
+    detected_sections = detect_sections(content)
+
+    return min(len(detected_sections) * 5, 25)
+
+
 def detect_readme_context(content):
     """Detect the most likely README context."""
     content_lower = content.lower()
@@ -283,7 +381,9 @@ def analyze_link_coverage(content, results, context):
 
     if context == "Application / Portfolio":
         if "Demo" not in link_types:
-            recommendations.append("Consider adding a live demo link.")
+            recommendations.append(
+                "Consider adding a live demo link."
+            )
 
         if "Documentation" not in link_types:
             recommendations.append(
@@ -365,47 +465,6 @@ def calculate_content_score(content):
         score += 5
 
     return min(score, 30)
-
-
-def calculate_section_score(content):
-    """Calculate important README section score out of 25 points."""
-    content_lower = content.lower()
-
-    section_groups = {
-        "Installation": (
-            "installation",
-            "install",
-            "setup",
-        ),
-        "Usage": (
-            "usage",
-            "how to use",
-            "getting started",
-        ),
-        "Features": (
-            "features",
-            "feature",
-        ),
-        "Demo": (
-            "demo",
-            "live demo",
-            "screenshots",
-            "screenshot",
-        ),
-        "Contributing / License": (
-            "contributing",
-            "contribute",
-            "license",
-        ),
-    }
-
-    score = 0
-
-    for keywords in section_groups.values():
-        if any(keyword in content_lower for keyword in keywords):
-            score += 5
-
-    return score
 
 
 def calculate_quality_score(content):
@@ -520,25 +579,29 @@ def generate_suggestions(content, results, breakdown, context):
                 "Add a code example or usage example."
             )
 
-    content_lower = content.lower()
+    detected_sections = detect_sections(content)
 
-    if "installation" not in content_lower:
-        if context not in (
+    if (
+        "Installation" not in detected_sections
+        and context not in (
             "Documentation / Tutorial",
             "General Project",
-        ):
-            suggestions.append(
-                "Add an Installation section."
-            )
+        )
+    ):
+        suggestions.append(
+            "Add an Installation section."
+        )
 
-    if "usage" not in content_lower:
-        if context not in (
+    if (
+        "Usage" not in detected_sections
+        and context not in (
             "Documentation / Tutorial",
             "General Project",
-        ):
-            suggestions.append(
-                "Add a Usage section."
-            )
+        )
+    ):
+        suggestions.append(
+            "Add a Usage section."
+        )
 
     coverage_suggestions = analyze_link_coverage(
         content,
