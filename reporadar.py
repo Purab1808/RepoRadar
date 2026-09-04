@@ -1,4 +1,4 @@
-"""RepoRadar - a small CLI tool for checking links in README files."""
+"""RepoRadar - a small CLI tool for analyzing README files."""
 
 import base64
 import re
@@ -9,7 +9,10 @@ from pathlib import Path
 import requests
 
 
-MARKDOWN_LINK_PATTERN = re.compile(r"\[[^\]]*\]\((https?://[^)\s]+)\)")
+MARKDOWN_LINK_PATTERN = re.compile(
+    r"\[[^\]]*\]\((https?://[^)\s]+)\)"
+)
+
 GITHUB_URL_PATTERN = re.compile(
     r"https?://github\.com/([^/\s]+)/([^/\s#?]+)"
 )
@@ -175,10 +178,155 @@ def display_result(number, result):
     print(f"   Response time: {result['response_time']:.2f}s")
 
 
-def calculate_link_health(results):
-    """Calculate the link health score out of 35 points."""
+def detect_readme_context(content):
+    """Detect the most likely README context."""
+    content_lower = content.lower()
+    word_count = len(content.split())
+
+    context_scores = {
+        "Application / Portfolio": 0,
+        "Library / Package": 0,
+        "Documentation / Tutorial": 0,
+        "Utility / Tool": 0,
+        "General Project": 0,
+    }
+
+    application_keywords = (
+        "web app",
+        "web application",
+        "dashboard",
+        "frontend",
+        "backend",
+        "full stack",
+        "full-stack",
+        "website",
+        "application",
+        "live demo",
+        "screenshots",
+    )
+
+    library_keywords = (
+        "library",
+        "package",
+        "sdk",
+        "api client",
+        "pip install",
+        "npm install",
+        "import ",
+        "dependency",
+    )
+
+    documentation_keywords = (
+        "documentation",
+        "docs",
+        "tutorial",
+        "guide",
+        "learn",
+        "course",
+        "lesson",
+        "examples",
+    )
+
+    utility_keywords = (
+        "cli",
+        "command line",
+        "command-line",
+        "utility",
+        "tool",
+        "automation",
+        "script",
+    )
+
+    for keyword in application_keywords:
+        if keyword in content_lower:
+            context_scores["Application / Portfolio"] += 2
+
+    for keyword in library_keywords:
+        if keyword in content_lower:
+            context_scores["Library / Package"] += 2
+
+    for keyword in documentation_keywords:
+        if keyword in content_lower:
+            context_scores["Documentation / Tutorial"] += 2
+
+    for keyword in utility_keywords:
+        if keyword in content_lower:
+            context_scores["Utility / Tool"] += 2
+
+    if word_count >= 400:
+        context_scores["Application / Portfolio"] += 1
+        context_scores["Library / Package"] += 1
+
+    if word_count <= 150:
+        context_scores["Utility / Tool"] += 1
+
+    best_context = max(
+        context_scores,
+        key=context_scores.get,
+    )
+
+    if context_scores[best_context] == 0:
+        return "General Project"
+
+    return best_context
+
+
+def analyze_link_coverage(content, results, context):
+    """Analyze whether useful link types are present."""
+    link_types = {
+        classify_link(result["url"])
+        for result in results
+        if not is_link_broken(result)
+    }
+
+    recommendations = []
+
+    if context == "Application / Portfolio":
+        if "Demo" not in link_types:
+            recommendations.append("Consider adding a live demo link.")
+
+        if "Documentation" not in link_types:
+            recommendations.append(
+                "Consider adding a documentation or setup link."
+            )
+
+    elif context == "Library / Package":
+        if "Documentation" not in link_types:
+            recommendations.append(
+                "Consider adding a documentation link."
+            )
+
+    elif context == "Utility / Tool":
+        if "GitHub" not in link_types:
+            recommendations.append(
+                "Consider adding a repository or source link."
+            )
+
+    elif context == "General Project":
+        if not results:
+            recommendations.append(
+                "Consider adding relevant project resources."
+            )
+
+    return recommendations
+
+
+def calculate_link_health(results, context):
+    """Calculate link health score out of 35 points."""
     if not results:
-        return 0
+        if context == "Application / Portfolio":
+            return 20
+
+        if context == "Library / Package":
+            return 20
+
+        if context == "Utility / Tool":
+            return 25
+
+        if context == "Documentation / Tutorial":
+            return 30
+
+        return 25
 
     working_links = sum(
         not is_link_broken(result)
@@ -193,12 +341,12 @@ def calculate_link_health(results):
 def calculate_content_score(content):
     """Calculate README content score out of 30 points."""
     score = 0
-
-    lines = content.splitlines()
-    non_empty_lines = [line.strip() for line in lines if line.strip()]
     word_count = len(content.split())
 
-    has_title = bool(re.search(r"^#\s+\S+", content, re.MULTILINE))
+    has_title = bool(
+        re.search(r"^#\s+\S+", content, re.MULTILINE)
+    )
+
     has_description = word_count >= 30
     has_code_block = "```" in content
 
@@ -264,14 +412,18 @@ def calculate_quality_score(content):
     """Calculate basic README quality score out of 10 points."""
     score = 0
 
-    lines = content.splitlines()
-    non_empty_lines = [line.strip() for line in lines if line.strip()]
-
     heading_count = len(
-        re.findall(r"^#{1,6}\s+\S+", content, re.MULTILINE)
+        re.findall(
+            r"^#{1,6}\s+\S+",
+            content,
+            re.MULTILINE,
+        )
     )
 
-    excessive_empty_lines = bool(re.search(r"\n{4,}", content))
+    excessive_empty_lines = bool(
+        re.search(r"\n{4,}", content)
+    )
+
     word_count = len(content.split())
 
     if heading_count >= 2:
@@ -288,9 +440,17 @@ def calculate_quality_score(content):
 
 def calculate_health_score(content, results):
     """Calculate the complete README health score out of 100."""
-    link_score = calculate_link_health(results)
+    context = detect_readme_context(content)
+
+    link_score = calculate_link_health(
+        results,
+        context,
+    )
+
     content_score = calculate_content_score(content)
+
     section_score = calculate_section_score(content)
+
     quality_score = calculate_quality_score(content)
 
     total_score = (
@@ -307,7 +467,7 @@ def calculate_health_score(content, results):
         "Basic Quality": quality_score,
     }
 
-    return total_score, breakdown
+    return total_score, breakdown, context
 
 
 def get_health_label(score):
@@ -324,16 +484,15 @@ def get_health_label(score):
     return "Poor"
 
 
-def generate_suggestions(content, results, breakdown):
-    """Generate suggestions based on README health analysis."""
+def generate_suggestions(content, results, breakdown, context):
+    """Generate context-aware README suggestions."""
     suggestions = []
 
     broken_links = [
-        result for result in results
+        result
+        for result in results
         if is_link_broken(result)
     ]
-
-    content_lower = content.lower()
 
     if broken_links:
         suggestions.append(
@@ -342,8 +501,14 @@ def generate_suggestions(content, results, breakdown):
         )
 
     if breakdown["README Content"] < 30:
-        if not re.search(r"^#\s+\S+", content, re.MULTILINE):
-            suggestions.append("Add a clear README title.")
+        if not re.search(
+            r"^#\s+\S+",
+            content,
+            re.MULTILINE,
+        ):
+            suggestions.append(
+                "Add a clear README title."
+            )
 
         if len(content.split()) < 30:
             suggestions.append(
@@ -355,21 +520,34 @@ def generate_suggestions(content, results, breakdown):
                 "Add a code example or usage example."
             )
 
-    section_suggestions = {
-        "installation": "Add an Installation section.",
-        "usage": "Add a Usage section.",
-        "features": "Add a Features section.",
-    }
+    content_lower = content.lower()
 
-    for keyword, suggestion in section_suggestions.items():
-        if keyword not in content_lower:
-            suggestions.append(suggestion)
+    if "installation" not in content_lower:
+        if context not in (
+            "Documentation / Tutorial",
+            "General Project",
+        ):
+            suggestions.append(
+                "Add an Installation section."
+            )
 
-    if not results:
-        suggestions.append(
-            "Consider adding relevant links such as a live demo "
-            "or documentation."
-        )
+    if "usage" not in content_lower:
+        if context not in (
+            "Documentation / Tutorial",
+            "General Project",
+        ):
+            suggestions.append(
+                "Add a Usage section."
+            )
+
+    coverage_suggestions = analyze_link_coverage(
+        content,
+        results,
+        context,
+    )
+
+    for suggestion in coverage_suggestions:
+        suggestions.append(suggestion)
 
     return suggestions
 
@@ -377,16 +555,18 @@ def generate_suggestions(content, results, breakdown):
 def display_summary(content, results):
     """Display README health score and analysis."""
     broken_links = [
-        result for result in results
+        result
+        for result in results
         if is_link_broken(result)
     ]
 
     working_links = [
-        result for result in results
+        result
+        for result in results
         if not is_link_broken(result)
     ]
 
-    health_score, breakdown = calculate_health_score(
+    health_score, breakdown, context = calculate_health_score(
         content,
         results,
     )
@@ -396,6 +576,8 @@ def display_summary(content, results):
     print("\n" + "-" * 35)
     print("README Health Summary")
     print("-" * 35)
+
+    print(f"README Context: {context}")
 
     print(f"Total links:   {len(results)}")
     print(f"Working links: {len(working_links)}")
@@ -407,17 +589,25 @@ def display_summary(content, results):
     )
 
     print("\nScore Breakdown:")
+
     print(
-        f"- Link Health:        {breakdown['Link Health']}/35"
+        f"- Link Health:        "
+        f"{breakdown['Link Health']}/35"
     )
+
     print(
-        f"- README Content:     {breakdown['README Content']}/30"
+        f"- README Content:     "
+        f"{breakdown['README Content']}/30"
     )
+
     print(
-        f"- Important Sections: {breakdown['Important Sections']}/25"
+        f"- Important Sections: "
+        f"{breakdown['Important Sections']}/25"
     )
+
     print(
-        f"- Basic Quality:      {breakdown['Basic Quality']}/10"
+        f"- Basic Quality:      "
+        f"{breakdown['Basic Quality']}/10"
     )
 
     if broken_links:
@@ -430,6 +620,7 @@ def display_summary(content, results):
         content,
         results,
         breakdown,
+        context,
     )
 
     if suggestions:
@@ -444,14 +635,19 @@ def display_summary(content, results):
 def main():
     """Run the RepoRadar command-line interface."""
     if len(sys.argv) != 2:
-        print("Usage: python reporadar.py <README.md | GitHub URL>")
+        print(
+            "Usage: python reporadar.py "
+            "<README.md | GitHub URL>"
+        )
         return
 
     source = sys.argv[1]
 
     try:
         if source.startswith("https://github.com/"):
-            print("\nRepoRadar - GitHub README Link Checker")
+            print(
+                "\nRepoRadar - GitHub README Link Checker"
+            )
             print("-" * 40)
             print(f"Repository: {source}")
             print("\nFetching README...")
@@ -459,7 +655,9 @@ def main():
             content = fetch_github_readme(source)
 
         else:
-            print("\nRepoRadar - README Link Checker")
+            print(
+                "\nRepoRadar - README Link Checker"
+            )
             print("-" * 35)
             print(f"File: {source}")
             print("\nReading README...")
