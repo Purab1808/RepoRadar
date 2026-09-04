@@ -20,6 +20,7 @@ HEADING_PATTERN = re.compile(
 )
 
 REQUEST_TIMEOUT = 10
+MAX_RETRIES = 1
 
 
 SECTION_ALIASES = {
@@ -199,7 +200,7 @@ def classify_link(url):
 
 
 def check_link(url):
-    """Check whether a URL is reachable."""
+    """Check whether a URL is reachable with one retry for transient failures."""
     if is_local_or_example_url(url):
         return {
             "url": url,
@@ -207,45 +208,55 @@ def check_link(url):
             "final_url": url,
             "response_time": 0,
             "error": "Local development/example URL",
+            "attempts": 0,
         }
 
     start_time = time.perf_counter()
+    last_error = None
 
-    try:
-        response = requests.head(
-            url,
-            allow_redirects=True,
-            timeout=REQUEST_TIMEOUT,
-        )
-
-        if response.status_code == 405:
-            response = requests.get(
+    for attempt in range(MAX_RETRIES + 1):
+        try:
+            response = requests.head(
                 url,
                 allow_redirects=True,
-                stream=True,
                 timeout=REQUEST_TIMEOUT,
             )
 
-        response_time = time.perf_counter() - start_time
+            if response.status_code == 405:
+                response = requests.get(
+                    url,
+                    allow_redirects=True,
+                    stream=True,
+                    timeout=REQUEST_TIMEOUT,
+                )
 
-        return {
-            "url": url,
-            "status": response.status_code,
-            "final_url": response.url,
-            "response_time": response_time,
-            "error": None,
-        }
+            response_time = time.perf_counter() - start_time
 
-    except requests.RequestException as error:
-        response_time = time.perf_counter() - start_time
+            return {
+                "url": url,
+                "status": response.status_code,
+                "final_url": response.url,
+                "response_time": response_time,
+                "error": None,
+                "attempts": attempt + 1,
+            }
 
-        return {
-            "url": url,
-            "status": None,
-            "final_url": url,
-            "response_time": response_time,
-            "error": str(error),
-        }
+        except requests.RequestException as error:
+            last_error = error
+
+            if attempt < MAX_RETRIES:
+                time.sleep(0.5)
+
+    response_time = time.perf_counter() - start_time
+
+    return {
+        "url": url,
+        "status": None,
+        "final_url": url,
+        "response_time": response_time,
+        "error": str(last_error),
+        "attempts": MAX_RETRIES + 1,
+    }
 
 
 def is_link_broken(result):
@@ -526,14 +537,10 @@ def display_result(index, result):
     link_type = classify_link(result["url"])
 
     if result["status"] == "LOCAL":
-        print(
-            f"{index}. ~ {result['url']}"
-        )
+        print(f"{index}. ~ {result['url']}")
         print("   Status: LOCAL")
         print(f"   Type: {link_type}")
-        print(
-            "   Note: Local development/example URL"
-        )
+        print("   Note: Local development/example URL")
         return
 
     if is_link_broken(result):
@@ -544,6 +551,9 @@ def display_result(index, result):
 
         print(f"   Type: {link_type}")
         print(
+            f"   Attempts: {result['attempts']}"
+        )
+        print(
             f"   Response time: "
             f"{result['response_time']:.2f}s"
         )
@@ -552,6 +562,12 @@ def display_result(index, result):
         print(f"{index}. ✓ {result['url']}")
         print(f"   Status: {result['status']}")
         print(f"   Type: {link_type}")
+
+        if result["attempts"] > 1:
+            print(
+                f"   Retry successful "
+                f"(attempt {result['attempts']})"
+            )
 
         if result["final_url"] != result["url"]:
             print(
