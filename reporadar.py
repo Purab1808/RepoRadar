@@ -19,6 +19,16 @@ HEADING_PATTERN = re.compile(
     re.MULTILINE,
 )
 
+HTML_H1_PATTERN = re.compile(
+    r"<h1[^>]*>\s*(.*?)\s*</h1>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+HTML_IMAGE_ALT_PATTERN = re.compile(
+    r"<img\b[^>]*\balt\s*=\s*[\"']([^\"']+)[\"'][^>]*>",
+    re.IGNORECASE,
+)
+
 REQUEST_TIMEOUT = 10
 MAX_RETRIES = 1
 
@@ -446,6 +456,64 @@ def calculate_section_score(detected_sections):
     return min(score, 25)
 
 
+def has_readme_title(content):
+    """Detect whether the README has a clear project title."""
+    lines = content.splitlines()
+
+    # Standard Markdown H1.
+    for line in lines:
+        stripped = line.strip()
+
+        if re.match(r"^#\s+\S+", stripped):
+            return True
+
+    # HTML H1 commonly used for README branding.
+    if HTML_H1_PATTERN.search(content):
+        return True
+
+    # Setext-style Markdown title.
+    for index in range(len(lines) - 1):
+        current_line = lines[index].strip()
+        next_line = lines[index + 1].strip()
+
+        if (
+            current_line
+            and re.match(r"^=+\s*$", next_line)
+        ):
+            return True
+
+    # Some professional READMEs use an image/logo
+    # instead of a text heading. Only inspect the
+    # beginning of the README to avoid treating
+    # screenshots or unrelated images as titles.
+    beginning = "\n".join(lines[:40])
+
+    image_alts = HTML_IMAGE_ALT_PATTERN.findall(beginning)
+
+    ignored_alt_text = {
+        "logo",
+        "image",
+        "screenshot",
+        "test",
+        "coverage",
+        "badge",
+        "package version",
+        "supported python versions",
+    }
+
+    for alt_text in image_alts:
+        normalized_alt = alt_text.strip().lower()
+
+        if (
+            normalized_alt
+            and normalized_alt not in ignored_alt_text
+            and len(normalized_alt) <= 80
+        ):
+            return True
+
+    return False
+
+
 def calculate_quality_score(content):
     """Calculate basic README quality score out of 10."""
     score = 0
@@ -455,10 +523,7 @@ def calculate_quality_score(content):
     if lines:
         score += 2
 
-    if any(
-        line.startswith("# ")
-        for line in lines
-    ):
+    if has_readme_title(content):
         score += 3
 
     if "```" in content:
@@ -601,12 +666,7 @@ def generate_suggestions(
             f"Fix {len(broken_links)} broken links."
         )
 
-    has_title = any(
-        line.startswith("# ")
-        for line in content.splitlines()
-    )
-
-    if not has_title:
+    if not has_readme_title(content):
         suggestions.append(
             "Add a clear README title."
         )
