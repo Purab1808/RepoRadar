@@ -265,6 +265,9 @@ def classify_link(url):
     """Classify a URL based on its domain or path."""
     url_lower = url.lower()
 
+    if is_local_or_example_url(url):
+        return "Local/Example"
+
     if "linkedin.com" in url_lower:
         return "LinkedIn"
 
@@ -763,9 +766,13 @@ def display_result(index, result):
         )
 
 
-def display_link_statistics(links, duplicate_links):
+def display_link_statistics(
+    links,
+    duplicate_links,
+):
     """Display link counts and duplicate URL information."""
     total_links = len(links)
+
     unique_links = len(
         set(
             normalize_url(link)
@@ -791,11 +798,42 @@ def display_link_statistics(links, duplicate_links):
         print("Duplicate Links:")
 
         for url, count in duplicate_links.items():
-            print(
-                f"→ {url}"
-            )
+            print(f"→ {url}")
             print(
                 f"  Found {count} times"
+            )
+
+
+def display_link_type_breakdown(links):
+    """Display the distribution of link types."""
+    type_counts = Counter(
+        classify_link(link)
+        for link in links
+    )
+
+    print()
+    print("Link Type Breakdown")
+    print("--------------------")
+
+    preferred_order = (
+        "GitHub",
+        "Documentation",
+        "Demo",
+        "LinkedIn",
+        "Email",
+        "Local/Example",
+        "External Website",
+    )
+
+    for link_type in preferred_order:
+        count = type_counts.get(
+            link_type,
+            0,
+        )
+
+        if count:
+            print(
+                f"{link_type + ':':<20}{count}"
             )
 
 
@@ -839,6 +877,10 @@ def display_summary(
     display_link_statistics(
         links,
         duplicate_links,
+    )
+
+    display_link_type_breakdown(
+        links
     )
 
     print()
@@ -1073,7 +1115,6 @@ def main():
 
     results = []
 
-    # Check each unique URL only once.
     unique_links = []
     seen_links = set()
 
