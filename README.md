@@ -6,8 +6,6 @@
 
 Extract links • Detect duplicates • Check availability • Classify links • Score README health
 
-<br>
-
 ![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Requests](https://img.shields.io/badge/Requests-HTTP%20Client-2C2D72?style=for-the-badge)
 ![CLI](https://img.shields.io/badge/Interface-CLI-black?style=for-the-badge)
@@ -164,7 +162,7 @@ RepoRadar follows a simple analysis pipeline:
                   │ • Context           │
                   │ • Sections          │
                   │ • Content           │
-                  │ • Quality           │
+                  │ • Quality            │
                   └──────────┬──────────┘
                              │
                              ▼
@@ -405,7 +403,6 @@ This project is open source.
 
 See the repository for the current license information.
 
-<div align="center">
 🔎 RepoRadar
 
 Scan it. Check it. Understand it.
@@ -413,5 +410,3 @@ Scan it. Check it. Understand it.
 Made with ❤️ using Python.
 
 ⭐ If you find RepoRadar useful, consider starring the repository.
-
-</div>
