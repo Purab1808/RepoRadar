@@ -2,6 +2,7 @@ import base64
 import re
 import sys
 import time
+from collections import Counter
 
 import requests
 
@@ -134,13 +135,11 @@ def detect_sections(content):
         for section, aliases in SECTION_ALIASES.items()
     }
 
-    # Detect sections from actual Markdown headings.
     for heading in headings:
         for section, aliases in normalized_aliases.items():
             if heading in aliases:
                 detected_sections.add(section)
 
-    # Detect sections from strong standalone content patterns.
     for section, patterns in SECTION_CONTENT_CUES.items():
         for pattern in patterns:
             if re.search(
@@ -159,14 +158,50 @@ def extract_links(content):
     return MARKDOWN_LINK_PATTERN.findall(content)
 
 
+def normalize_url(url):
+    """
+    Normalize a URL for duplicate detection.
+
+    This removes harmless differences such as a trailing slash
+    while keeping the actual URL structure intact.
+    """
+    return url.rstrip("/")
+
+
+def find_duplicate_links(links):
+    """
+    Find duplicate URLs and their occurrence counts.
+
+    Returns:
+        dict: normalized URL -> number of occurrences
+    """
+    normalized_links = [
+        normalize_url(link)
+        for link in links
+    ]
+
+    counts = Counter(normalized_links)
+
+    return {
+        url: count
+        for url, count in counts.items()
+        if count > 1
+    }
+
+
 def fetch_github_readme(repository_url):
     """Fetch a public GitHub repository README through the GitHub API."""
-    match = GITHUB_URL_PATTERN.fullmatch(repository_url.rstrip("/"))
+    match = GITHUB_URL_PATTERN.fullmatch(
+        repository_url.rstrip("/")
+    )
 
     if not match:
-        raise ValueError("Invalid GitHub repository URL.")
+        raise ValueError(
+            "Invalid GitHub repository URL."
+        )
 
     owner, repository = match.groups()
+
     api_url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repository}/readme"
@@ -174,7 +209,9 @@ def fetch_github_readme(repository_url):
 
     response = requests.get(
         api_url,
-        headers={"Accept": "application/vnd.github+json"},
+        headers={
+            "Accept": "application/vnd.github+json"
+        },
         timeout=REQUEST_TIMEOUT,
     )
 
@@ -188,7 +225,9 @@ def fetch_github_readme(repository_url):
     data = response.json()
 
     if data.get("encoding") != "base64":
-        raise ValueError("Unsupported README encoding.")
+        raise ValueError(
+            "Unsupported README encoding."
+        )
 
     return base64.b64decode(
         data["content"]
@@ -197,7 +236,11 @@ def fetch_github_readme(repository_url):
 
 def read_local_readme(readme_path):
     """Read a local README Markdown file."""
-    with open(readme_path, "r", encoding="utf-8") as file:
+    with open(
+        readme_path,
+        "r",
+        encoding="utf-8",
+    ) as file:
         return file.read()
 
 
@@ -517,32 +560,31 @@ def has_readme_title(content):
     """Detect whether the README has a clear project title."""
     lines = content.splitlines()
 
-    # Standard Markdown H1.
     for line in lines:
         stripped = line.strip()
 
-        if re.match(r"^#\s+\S+", stripped):
+        if re.match(
+            r"^#\s+\S+",
+            stripped,
+        ):
             return True
 
-    # HTML H1 commonly used for README branding.
     if HTML_H1_PATTERN.search(content):
         return True
 
-    # Setext-style Markdown title.
     for index in range(len(lines) - 1):
         current_line = lines[index].strip()
         next_line = lines[index + 1].strip()
 
         if (
             current_line
-            and re.match(r"^=+\s*$", next_line)
+            and re.match(
+                r"^=+\s*$",
+                next_line,
+            )
         ):
             return True
 
-    # Some professional READMEs use an image/logo
-    # instead of a text heading. Only inspect the
-    # beginning of the README to avoid treating
-    # screenshots or unrelated images as titles.
     beginning = "\n".join(lines[:40])
 
     image_alts = HTML_IMAGE_ALT_PATTERN.findall(
@@ -603,13 +645,17 @@ def calculate_health_score(
     """Calculate the overall README health score out of 100."""
     link_health = calculate_link_health(results)
 
-    content_score = calculate_content_score(content)
+    content_score = calculate_content_score(
+        content
+    )
 
     section_score = calculate_section_score(
         detected_sections
     )
 
-    quality_score = calculate_quality_score(content)
+    quality_score = calculate_quality_score(
+        content
+    )
 
     if not results:
         context_link_scores = {
@@ -717,6 +763,152 @@ def display_result(index, result):
         )
 
 
+def display_link_statistics(links, duplicate_links):
+    """Display link counts and duplicate URL information."""
+    total_links = len(links)
+    unique_links = len(
+        set(
+            normalize_url(link)
+            for link in links
+        )
+    )
+
+    duplicate_occurrences = (
+        total_links - unique_links
+    )
+
+    print()
+    print("Link Statistics")
+    print("----------------")
+    print(f"Total links:      {total_links}")
+    print(f"Unique links:     {unique_links}")
+    print(
+        f"Duplicate links:  {duplicate_occurrences}"
+    )
+
+    if duplicate_links:
+        print()
+        print("Duplicate Links:")
+
+        for url, count in duplicate_links.items():
+            print(
+                f"→ {url}"
+            )
+            print(
+                f"  Found {count} times"
+            )
+
+
+def display_summary(
+    results,
+    content,
+    detected_sections,
+    context,
+    links,
+    duplicate_links,
+):
+    """Display the complete README health summary."""
+    total_links = len(links)
+
+    working_links = sum(
+        not is_link_broken(result)
+        for result in results
+    )
+
+    broken_links = sum(
+        is_link_broken(result)
+        for result in results
+    )
+
+    local_links = sum(
+        result["status"] == "LOCAL"
+        for result in results
+    )
+
+    health_score, breakdown = calculate_health_score(
+        results,
+        content,
+        detected_sections,
+        context,
+    )
+
+    health_label = get_health_label(
+        health_score
+    )
+
+    display_link_statistics(
+        links,
+        duplicate_links,
+    )
+
+    print()
+    print("-----------------------------------")
+    print("README Health Summary")
+    print("-----------------------------------")
+
+    print(f"README Context: {context}")
+    print(f"Total links:   {total_links}")
+    print(f"Working links: {working_links}")
+    print(f"Broken links:  {broken_links}")
+
+    if local_links:
+        print(
+            f"Local/example: {local_links}"
+        )
+
+    print(
+        f"README Health: {health_score}% "
+        f"({health_label})"
+    )
+
+    print()
+    print("Score Breakdown:")
+
+    print(
+        f"- Link Health:        "
+        f"{breakdown['Link Health']}/35"
+    )
+
+    print(
+        f"- README Content:     "
+        f"{breakdown['README Content']}/30"
+    )
+
+    print(
+        f"- Important Sections: "
+        f"{breakdown['Important Sections']}/25"
+    )
+
+    print(
+        f"- Basic Quality:      "
+        f"{breakdown['Basic Quality']}/10"
+    )
+
+    if broken_links:
+        print()
+        print("Broken Links:")
+
+        for result in results:
+            if is_link_broken(result):
+                print(
+                    f"- {result['url']}"
+                )
+
+    suggestions = generate_suggestions(
+        results,
+        content,
+        detected_sections,
+        context,
+    )
+
+    if suggestions:
+        print()
+        print("Suggestions:")
+
+        for suggestion in suggestions:
+            print(f"→ {suggestion}")
+
+
 def generate_suggestions(
     results,
     content,
@@ -815,105 +1007,6 @@ def generate_suggestions(
     return suggestions
 
 
-def display_summary(
-    results,
-    content,
-    detected_sections,
-    context,
-):
-    """Display the complete README health summary."""
-    total_links = len(results)
-
-    working_links = sum(
-        not is_link_broken(result)
-        for result in results
-    )
-
-    broken_links = sum(
-        is_link_broken(result)
-        for result in results
-    )
-
-    local_links = sum(
-        result["status"] == "LOCAL"
-        for result in results
-    )
-
-    health_score, breakdown = calculate_health_score(
-        results,
-        content,
-        detected_sections,
-        context,
-    )
-
-    health_label = get_health_label(health_score)
-
-    print()
-    print("-----------------------------------")
-    print("README Health Summary")
-    print("-----------------------------------")
-
-    print(f"README Context: {context}")
-    print(f"Total links:   {total_links}")
-    print(f"Working links: {working_links}")
-    print(f"Broken links:  {broken_links}")
-
-    if local_links:
-        print(
-            f"Local/example: {local_links}"
-        )
-
-    print(
-        f"README Health: {health_score}% "
-        f"({health_label})"
-    )
-
-    print()
-    print("Score Breakdown:")
-
-    print(
-        f"- Link Health:        "
-        f"{breakdown['Link Health']}/35"
-    )
-
-    print(
-        f"- README Content:     "
-        f"{breakdown['README Content']}/30"
-    )
-
-    print(
-        f"- Important Sections: "
-        f"{breakdown['Important Sections']}/25"
-    )
-
-    print(
-        f"- Basic Quality:      "
-        f"{breakdown['Basic Quality']}/10"
-    )
-
-    if broken_links:
-        print()
-        print("Broken Links:")
-
-        for result in results:
-            if is_link_broken(result):
-                print(f"- {result['url']}")
-
-    suggestions = generate_suggestions(
-        results,
-        content,
-        detected_sections,
-        context,
-    )
-
-    if suggestions:
-        print()
-        print("Suggestions:")
-
-        for suggestion in suggestions:
-            print(f"→ {suggestion}")
-
-
 def main():
     """Run RepoRadar from the command line."""
     if len(sys.argv) != 2:
@@ -938,7 +1031,9 @@ def main():
         print("Fetching README...")
 
         try:
-            content = fetch_github_readme(target)
+            content = fetch_github_readme(
+                target
+            )
 
         except (
             requests.RequestException,
@@ -953,7 +1048,9 @@ def main():
         print("Reading README...")
 
         try:
-            content = read_local_readme(target)
+            content = read_local_readme(
+                target
+            )
 
         except OSError as error:
             print(f"Error: {error}")
@@ -961,7 +1058,13 @@ def main():
 
     links = extract_links(content)
 
-    print(f"Links found: {len(links)}")
+    duplicate_links = find_duplicate_links(
+        links
+    )
+
+    print(
+        f"Links found: {len(links)}"
+    )
 
     if not links:
         print(
@@ -970,20 +1073,33 @@ def main():
 
     results = []
 
-    if links:
+    # Check each unique URL only once.
+    unique_links = []
+    seen_links = set()
+
+    for link in links:
+        normalized_link = normalize_url(link)
+
+        if normalized_link not in seen_links:
+            seen_links.add(normalized_link)
+            unique_links.append(link)
+
+    if unique_links:
         print()
         print("Checking links...")
         print()
 
         for index, link in enumerate(
-            links,
+            unique_links,
             start=1,
         ):
             result = check_link(link)
             results.append(result)
             display_result(index, result)
 
-    detected_sections = detect_sections(content)
+    detected_sections = detect_sections(
+        content
+    )
 
     context = detect_readme_context(
         content,
@@ -995,6 +1111,8 @@ def main():
         content,
         detected_sections,
         context,
+        links,
+        duplicate_links,
     )
 
 
