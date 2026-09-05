@@ -262,25 +262,78 @@ def is_local_or_example_url(url):
 
 
 def classify_link(url):
-    """Classify a URL based on its domain or path."""
+    """
+    Classify a URL based on its domain or path.
+
+    Classification order matters because some URLs can match
+    more than one general pattern.
+    """
     url_lower = url.lower()
 
+    # Local/example URLs should always be classified first.
     if is_local_or_example_url(url):
         return "Local/Example"
 
-    if "linkedin.com" in url_lower:
-        return "LinkedIn"
-
+    # Email links.
     if "mailto:" in url_lower:
         return "Email"
 
+    # GitHub links.
     if "github.com" in url_lower:
         return "GitHub"
 
+    # LinkedIn links.
+    if "linkedin.com" in url_lower:
+        return "LinkedIn"
+
+    # Social media platforms.
+    social_media_domains = (
+        "twitter.com",
+        "x.com",
+        "facebook.com",
+        "instagram.com",
+        "youtube.com",
+        "youtu.be",
+        "tiktok.com",
+        "discord.com",
+        "discord.gg",
+        "reddit.com",
+        "threads.net",
+        "mastodon.social",
+    )
+
+    if any(
+        domain in url_lower
+        for domain in social_media_domains
+    ):
+        return "Social Media"
+
+    # Package/dependency registries and package platforms.
+    package_domains = (
+        "pypi.org",
+        "npmjs.com",
+        "npmjs.org",
+        "crates.io",
+        "rubygems.org",
+        "packagist.org",
+        "nuget.org",
+        "hub.docker.com",
+    )
+
+    if any(
+        domain in url_lower
+        for domain in package_domains
+    ):
+        return "Package / Dependency"
+
+    # Demo/deployed application platforms.
     demo_keywords = (
         "vercel.app",
         "netlify.app",
         "github.io",
+        "pages.dev",
+        "streamlit.app",
+        "herokuapp.com",
     )
 
     if any(
@@ -289,11 +342,15 @@ def classify_link(url):
     ):
         return "Demo"
 
+    # Documentation links.
     documentation_keywords = (
         "docs.",
         "documentation",
         "/docs",
         "readthedocs.io",
+        "readthedocs.org",
+        "/reference",
+        "/api-docs",
     )
 
     if any(
@@ -302,6 +359,7 @@ def classify_link(url):
     ):
         return "Documentation"
 
+    # Generic demo URLs.
     if "demo" in url_lower:
         return "Demo"
 
@@ -821,6 +879,8 @@ def display_link_type_breakdown(links):
         "Demo",
         "LinkedIn",
         "Email",
+        "Social Media",
+        "Package / Dependency",
         "Local/Example",
         "External Website",
     )
@@ -833,7 +893,7 @@ def display_link_type_breakdown(links):
 
         if count:
             print(
-                f"{link_type + ':':<20}{count}"
+                f"{link_type + ':':<24}{count}"
             )
 
 
