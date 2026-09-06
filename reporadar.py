@@ -1,5 +1,6 @@
 import argparse
 import base64
+import json
 import re
 import sys
 import time
@@ -1125,6 +1126,136 @@ def generate_suggestions(
     return suggestions
 
 
+def build_json_report(
+    target,
+    results,
+    content,
+    detected_sections,
+    context,
+    links,
+    duplicate_links,
+    check_links,
+):
+    """Build a machine-readable JSON report."""
+    health_score, breakdown = calculate_health_score(
+        results,
+        content,
+        detected_sections,
+        context,
+    )
+
+    health_label = get_health_label(
+        health_score
+    )
+
+    working_links = sum(
+        not is_link_broken(result)
+        for result in results
+    )
+
+    broken_links = sum(
+        is_link_broken(result)
+        for result in results
+    )
+
+    local_links = sum(
+        result["status"] == "LOCAL"
+        for result in results
+    )
+
+    unique_links = len(
+        set(
+            normalize_url(link)
+            for link in links
+        )
+    )
+
+    duplicate_occurrences = (
+        len(links) - unique_links
+    )
+
+    link_type_counts = Counter(
+        classify_link(link)
+        for link in links
+    )
+
+    suggestions = generate_suggestions(
+        results,
+        content,
+        detected_sections,
+        context,
+        check_links=check_links,
+    )
+
+    link_results = []
+
+    for result in results:
+        link_results.append(
+            {
+                "url": result["url"],
+                "status": result["status"],
+                "final_url": result["final_url"],
+                "response_time": round(
+                    result["response_time"],
+                    3,
+                ),
+                "error": result["error"],
+                "attempts": result["attempts"],
+                "type": classify_link(
+                    result["url"]
+                ),
+                "broken": is_link_broken(
+                    result
+                ),
+            }
+        )
+
+    report = {
+        "target": target,
+        "context": context,
+        "links": {
+            "total": len(links),
+            "unique": unique_links,
+            "duplicate_occurrences": (
+                duplicate_occurrences
+            ),
+            "working": (
+                working_links
+                if check_links
+                else None
+            ),
+            "broken": (
+                broken_links
+                if check_links
+                else None
+            ),
+            "local_or_example": (
+                local_links
+                if check_links
+                else None
+            ),
+            "type_breakdown": dict(
+                link_type_counts
+            ),
+        },
+        "duplicates": duplicate_links,
+        "health": {
+            "score": health_score,
+            "label": health_label,
+            "breakdown": breakdown,
+        },
+        "suggestions": suggestions,
+        "link_results": link_results,
+        "options": {
+            "timeout": REQUEST_TIMEOUT,
+            "retry_enabled": MAX_RETRIES > 0,
+            "link_checking_enabled": check_links,
+        },
+    }
+
+    return report
+
+
 def parse_arguments():
     """Parse command-line arguments for RepoRadar."""
     parser = argparse.ArgumentParser(
@@ -1164,6 +1295,12 @@ def parse_arguments():
         help="Disable retry on failed requests",
     )
 
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output the analysis report as JSON",
+    )
+
     args = parser.parse_args()
 
     if args.timeout <= 0:
@@ -1190,17 +1327,19 @@ def main():
 
     target = args.target
 
-    print(
-        "RepoRadar - GitHub README Link Checker"
-    )
-    print("----------------------------------------")
+    if not args.json:
+        print(
+            "RepoRadar - GitHub README Link Checker"
+        )
+        print("----------------------------------------")
 
     if target.startswith(
         "https://github.com/"
     ):
-        print(f"Repository: {target}")
-        print()
-        print("Fetching README...")
+        if not args.json:
+            print(f"Repository: {target}")
+            print()
+            print("Fetching README...")
 
         try:
             content = fetch_github_readme(
@@ -1211,13 +1350,25 @@ def main():
             requests.RequestException,
             ValueError,
         ) as error:
-            print(f"Error: {error}")
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "error": str(error)
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"Error: {error}")
+
             sys.exit(1)
 
     else:
-        print(f"README: {target}")
-        print()
-        print("Reading README...")
+        if not args.json:
+            print(f"README: {target}")
+            print()
+            print("Reading README...")
 
         try:
             content = read_local_readme(
@@ -1225,7 +1376,18 @@ def main():
             )
 
         except OSError as error:
-            print(f"Error: {error}")
+            if args.json:
+                print(
+                    json.dumps(
+                        {
+                            "error": str(error)
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print(f"Error: {error}")
+
             sys.exit(1)
 
     links = extract_links(content)
@@ -1233,15 +1395,6 @@ def main():
     duplicate_links = find_duplicate_links(
         links
     )
-
-    print(
-        f"Links found: {len(links)}"
-    )
-
-    if not links:
-        print(
-            "No HTTP/HTTPS Markdown links found."
-        )
 
     results = []
 
@@ -1255,14 +1408,28 @@ def main():
             seen_links.add(normalized_link)
             unique_links.append(link)
 
+    if not args.json:
+        print(
+            f"Links found: {len(links)}"
+        )
+
+        if not links:
+            print(
+                "No HTTP/HTTPS Markdown links found."
+            )
+
     if args.no_check:
-        print()
-        print("Link checking skipped (--no-check).")
+        if not args.json:
+            print()
+            print(
+                "Link checking skipped (--no-check)."
+            )
 
     elif unique_links:
-        print()
-        print("Checking links...")
-        print()
+        if not args.json:
+            print()
+            print("Checking links...")
+            print()
 
         for index, link in enumerate(
             unique_links,
@@ -1270,7 +1437,12 @@ def main():
         ):
             result = check_link(link)
             results.append(result)
-            display_result(index, result)
+
+            if not args.json:
+                display_result(
+                    index,
+                    result,
+                )
 
     detected_sections = detect_sections(
         content
@@ -1281,15 +1453,36 @@ def main():
         links,
     )
 
-    display_summary(
-        results,
-        content,
-        detected_sections,
-        context,
-        links,
-        duplicate_links,
-        check_links=not args.no_check,
-    )
+    if args.json:
+        report = build_json_report(
+            target,
+            results,
+            content,
+            detected_sections,
+            context,
+            links,
+            duplicate_links,
+            check_links=not args.no_check,
+        )
+
+        print(
+            json.dumps(
+                report,
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+
+    else:
+        display_summary(
+            results,
+            content,
+            detected_sections,
+            context,
+            links,
+            duplicate_links,
+            check_links=not args.no_check,
+        )
 
 
 if __name__ == "__main__":
