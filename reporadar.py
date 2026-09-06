@@ -438,6 +438,71 @@ def check_link(url):
     }
 
 
+def get_failure_reason(result):
+    """Return a human-readable reason for a failed link."""
+    status = result["status"]
+    error = result["error"]
+
+    if status == "LOCAL":
+        return None
+
+    if status is None:
+        if error:
+            error_lower = error.lower()
+
+            if (
+                "timeout" in error_lower
+                or "timed out" in error_lower
+            ):
+                return "Request Timeout"
+
+            if "connection" in error_lower:
+                return "Connection Error"
+
+            if "ssl" in error_lower:
+                return "SSL Error"
+
+            if (
+                "name or service not known"
+                in error_lower
+            ):
+                return "DNS Resolution Error"
+
+            if "failed to resolve" in error_lower:
+                return "DNS Resolution Error"
+
+            if (
+                "temporary failure in name resolution"
+                in error_lower
+            ):
+                return "DNS Resolution Error"
+
+            return "Request Error"
+
+        return "No Response"
+
+    status_reasons = {
+        400: "HTTP 400 - Bad Request",
+        401: "HTTP 401 - Unauthorized",
+        403: "HTTP 403 - Forbidden",
+        404: "HTTP 404 - Not Found",
+        408: "HTTP 408 - Request Timeout",
+        429: "HTTP 429 - Too Many Requests",
+        500: "HTTP 500 - Internal Server Error",
+        502: "HTTP 502 - Bad Gateway",
+        503: "HTTP 503 - Service Unavailable",
+        504: "HTTP 504 - Gateway Timeout",
+    }
+
+    if status in status_reasons:
+        return status_reasons[status]
+
+    if status >= 400:
+        return f"HTTP {status} - Client/Server Error"
+
+    return "Unknown Failure"
+
+
 def is_link_broken(result):
     """Determine whether a link should count as broken."""
     if result["status"] == "LOCAL":
@@ -793,6 +858,10 @@ def display_result(index, result):
             f"{index}. ✗ {result['url']}"
         )
 
+        print(
+            f"   Reason: {get_failure_reason(result)}"
+        )
+
         if result["error"]:
             print(
                 f"   Error: {result['error']}"
@@ -1010,6 +1079,10 @@ def display_summary(
                 print(
                     f"- {result['url']}"
                 )
+                print(
+                    f"  Reason: "
+                    f"{get_failure_reason(result)}"
+                )
 
     suggestions = generate_suggestions(
         results,
@@ -1206,6 +1279,11 @@ def build_json_report(
                 ),
                 "broken": is_link_broken(
                     result
+                ),
+                "failure_reason": (
+                    get_failure_reason(result)
+                    if is_link_broken(result)
+                    else None
                 ),
             }
         )
