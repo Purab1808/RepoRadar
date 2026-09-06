@@ -1,3 +1,4 @@
+import argparse
 import base64
 import re
 import sys
@@ -30,8 +31,12 @@ HTML_IMAGE_ALT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-REQUEST_TIMEOUT = 10
-MAX_RETRIES = 1
+
+DEFAULT_REQUEST_TIMEOUT = 10
+DEFAULT_MAX_RETRIES = 1
+
+REQUEST_TIMEOUT = DEFAULT_REQUEST_TIMEOUT
+MAX_RETRIES = DEFAULT_MAX_RETRIES
 
 
 SECTION_ALIASES = {
@@ -116,7 +121,11 @@ def normalize_heading(heading):
 def extract_headings(content):
     """Extract normalized Markdown headings."""
     headings = HEADING_PATTERN.findall(content)
-    return [normalize_heading(heading) for heading in headings]
+
+    return [
+        normalize_heading(heading)
+        for heading in headings
+    ]
 
 
 def detect_sections(content):
@@ -904,6 +913,7 @@ def display_summary(
     context,
     links,
     duplicate_links,
+    check_links=True,
 ):
     """Display the complete README health summary."""
     total_links = len(links)
@@ -950,13 +960,17 @@ def display_summary(
 
     print(f"README Context: {context}")
     print(f"Total links:   {total_links}")
-    print(f"Working links: {working_links}")
-    print(f"Broken links:  {broken_links}")
 
-    if local_links:
-        print(
-            f"Local/example: {local_links}"
-        )
+    if check_links:
+        print(f"Working links: {working_links}")
+        print(f"Broken links:  {broken_links}")
+
+        if local_links:
+            print(
+                f"Local/example: {local_links}"
+            )
+    else:
+        print("Link checking: Skipped")
 
     print(
         f"README Health: {health_score}% "
@@ -1001,6 +1015,7 @@ def display_summary(
         content,
         detected_sections,
         context,
+        check_links=check_links,
     )
 
     if suggestions:
@@ -1016,6 +1031,7 @@ def generate_suggestions(
     content,
     detected_sections,
     context,
+    check_links=True,
 ):
     """Generate context-aware README improvement suggestions."""
     suggestions = []
@@ -1026,7 +1042,7 @@ def generate_suggestions(
         if is_link_broken(result)
     ]
 
-    if broken_links:
+    if check_links and broken_links:
         suggestions.append(
             f"Fix {len(broken_links)} broken links."
         )
@@ -1109,16 +1125,70 @@ def generate_suggestions(
     return suggestions
 
 
+def parse_arguments():
+    """Parse command-line arguments for RepoRadar."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "RepoRadar - GitHub README analyzer "
+            "and link checker"
+        )
+    )
+
+    parser.add_argument(
+        "target",
+        help=(
+            "README path or GitHub repository URL"
+        ),
+    )
+
+    parser.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_REQUEST_TIMEOUT,
+        metavar="SECONDS",
+        help=(
+            "HTTP request timeout "
+            f"(default: {DEFAULT_REQUEST_TIMEOUT})"
+        ),
+    )
+
+    parser.add_argument(
+        "--no-check",
+        action="store_true",
+        help="Skip HTTP link checking",
+    )
+
+    parser.add_argument(
+        "--no-retry",
+        action="store_true",
+        help="Disable retry on failed requests",
+    )
+
+    args = parser.parse_args()
+
+    if args.timeout <= 0:
+        parser.error(
+            "--timeout must be greater than 0"
+        )
+
+    return args
+
+
 def main():
     """Run RepoRadar from the command line."""
-    if len(sys.argv) != 2:
-        print(
-            "Usage: python reporadar.py "
-            "<README path or GitHub repository URL>"
-        )
-        sys.exit(1)
+    global REQUEST_TIMEOUT
+    global MAX_RETRIES
 
-    target = sys.argv[1]
+    args = parse_arguments()
+
+    REQUEST_TIMEOUT = args.timeout
+
+    if args.no_retry:
+        MAX_RETRIES = 0
+    else:
+        MAX_RETRIES = DEFAULT_MAX_RETRIES
+
+    target = args.target
 
     print(
         "RepoRadar - GitHub README Link Checker"
@@ -1185,7 +1255,11 @@ def main():
             seen_links.add(normalized_link)
             unique_links.append(link)
 
-    if unique_links:
+    if args.no_check:
+        print()
+        print("Link checking skipped (--no-check).")
+
+    elif unique_links:
         print()
         print("Checking links...")
         print()
@@ -1214,6 +1288,7 @@ def main():
         context,
         links,
         duplicate_links,
+        check_links=not args.no_check,
     )
 
 
