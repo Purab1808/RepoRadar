@@ -421,8 +421,7 @@ Individual link results can contain:
   "failure_reason": "HTTP 404 - Not Found"
 }
 
-JSON output is useful for future automation, integrations, scripts, and web-based interfaces.
-
+JSON output makes RepoRadar easier to integrate with automation scripts, CI workflows, and future web-based interfaces.
 ❤️ README Health Score
 
 RepoRadar calculates a score out of 100 using four areas:
