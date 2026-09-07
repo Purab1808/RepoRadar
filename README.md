@@ -17,7 +17,7 @@ Extract links • Detect duplicates • Check availability • Classify links �
 
 ## 📌 What is RepoRadar?
 
-**RepoRadar** is a lightweight Python CLI tool that analyzes Markdown README files and helps identify problems with project links and README structure.
+**RepoRadar** is a lightweight Python CLI tool that analyzes Markdown README files and helps identify problems with project links and README structure. It is designed to provide a quick health check for a README before publishing or sharing a project.
 
 Give RepoRadar either a **local README file** or a **public GitHub repository URL**, and it will:
 
